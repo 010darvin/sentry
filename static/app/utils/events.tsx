@@ -186,7 +186,7 @@ export function getTitle(
         treeLabel: undefined,
       };
     case EventOrGroupType.GENERIC:
-      const isProfilingIssue = eventIsProfilingIssue(event);
+      const isProfilingIssue = !isTombstone(event) && eventIsProfilingIssue(event);
       return {
         title: isProfilingIssue ? metadata.title : customTitle ?? title,
         subtitle: isProfilingIssue ? culprit : '',
@@ -417,5 +417,5 @@ export function eventIsProfilingIssue(event: Event | BaseGroup) {
 }
 
 function isIssue(event: Event | BaseGroup): event is Event {
-  return !isTombstone(event) && event.hasOwnProperty('occurrence');
+  return event.hasOwnProperty('occurrence');
 }
