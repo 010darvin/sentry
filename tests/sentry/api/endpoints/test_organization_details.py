@@ -345,6 +345,7 @@ class OrganizationUpdateTest(OrganizationDetailsTestBase):
             "isEarlyAdopter": True,
             "codecovAccess": True,
             "aiSuggestedSolution": False,
+            "githubPRBot": False,
             "allowSharedIssues": False,
             "enhancedPrivacy": True,
             "dataScrubber": True,
@@ -414,6 +415,7 @@ class OrganizationUpdateTest(OrganizationDetailsTestBase):
         assert "to {}".format(data["eventsMemberAdmin"]) in log.data["eventsMemberAdmin"]
         assert "to {}".format(data["alertsMemberWrite"]) in log.data["alertsMemberWrite"]
         assert "to {}".format(data["aiSuggestedSolution"]) in log.data["aiSuggestedSolution"]
+        assert "to {}".format(data["githubPRBot"]) in log.data["githubPRBot"]
 
     @responses.activate
     @patch(
