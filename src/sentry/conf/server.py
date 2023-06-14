@@ -1986,6 +1986,7 @@ SENTRY_SCOPES = {
     "org:write",
     "org:admin",
     "org:integrations",
+    "org:ci",
     "member:read",
     "member:write",
     "member:admin",
