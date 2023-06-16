@@ -280,3 +280,13 @@ class FeatureManagerTest(TestCase):
 
         assert "feat:4" in manager.entity_features
         assert "feat:5" in manager.entity_features
+
+    def test_all(self):
+        manager = features.FeatureManager()
+
+        manager.add("feat:org", features.OrganizationFeature)
+        manager.add("feat:project", features.ProjectFeature, False)
+        manager.add("feat:system", features.SystemFeature, False)
+
+        assert list(manager.all().keys()) == ["feat:org", "feat:project", "feat:system"]
+        assert list(manager.all(features.OrganizationFeature).keys()) == ["feat:org"]
