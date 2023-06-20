@@ -11,9 +11,10 @@ from sentry_relay import UnpackError
 
 from sentry import options
 from sentry.auth.system import SystemToken, is_internal_ip
-from sentry.models import ApiApplication, ApiKey, ApiToken, ProjectKey, Relay
+from sentry.models import ApiApplication, ApiKey, ApiToken, OrgAuthToken, ProjectKey, Relay
 from sentry.relay.utils import get_header_relay_id, get_header_relay_signature
 from sentry.utils.sdk import configure_scope
+from sentry.utils.security.orgauthtoken_jwt import SENTRY_JWT_PREFIX, hash_token
 
 
 def is_internal_relay(request, public_key):
@@ -189,6 +190,9 @@ class TokenAuthentication(StandardAuthentication):
     token_name = b"bearer"
 
     def authenticate_credentials(self, request: Request, token_str):
+        if token_str.startswith(SENTRY_JWT_PREFIX):
+            return None
+
         token = SystemToken.from_request(request, token_str)
         try:
             token = (
@@ -215,6 +219,31 @@ class TokenAuthentication(StandardAuthentication):
             scope.set_tag("api_token_is_sentry_app", getattr(token.user, "is_sentry_app", False))
 
         return (token.user, token)
+
+
+class OrgAuthTokenAuthentication(StandardAuthentication):
+    token_name = b"bearer"
+
+    def authenticate_credentials(self, request: Request, token_str):
+        if not token_str.startswith(SENTRY_JWT_PREFIX):
+            return None
+
+        token = None
+        token_hashed = hash_token(token_str)
+
+        try:
+            token = OrgAuthToken.objects.filter(
+                token_hashed=token_hashed, date_deactivated__isnull=True
+            ).get()
+        except OrgAuthToken.DoesNotExist:
+            raise AuthenticationFailed("Invalid org token")
+
+        with configure_scope() as scope:
+            scope.set_tag("api_token_type", self.token_name)
+            scope.set_tag("api_token", token.id)
+            scope.set_tag("api_token_is_org_token", True)
+
+        return (AnonymousUser(), token)
 
 
 class DSNAuthentication(StandardAuthentication):

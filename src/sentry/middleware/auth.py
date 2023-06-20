@@ -5,17 +5,23 @@ from typing import Any
 from django.contrib.auth import get_user as auth_get_user
 from django.contrib.auth.models import AnonymousUser
 from django.utils.deprecation import MiddlewareMixin
+from django.utils.encoding import force_text
 from django.utils.functional import SimpleLazyObject
 from rest_framework.authentication import get_authorization_header
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.request import Request
 
-from sentry.api.authentication import ApiKeyAuthentication, TokenAuthentication
+from sentry.api.authentication import (
+    ApiKeyAuthentication,
+    OrgAuthTokenAuthentication,
+    TokenAuthentication,
+)
 from sentry.models import UserIP
 from sentry.services.hybrid_cloud.auth import auth_service, authentication_request_from
 from sentry.silo import SiloMode
 from sentry.utils.auth import AuthUserPasswordExpired, logger
 from sentry.utils.linksign import process_signature
+from sentry.utils.security.orgauthtoken_jwt import SENTRY_JWT_PREFIX
 
 
 def get_user(request):
@@ -73,9 +79,27 @@ class RequestAuthenticationMiddleware(MiddlewareMixin):
         if user is not None:
             request.user = user
             request.user_from_signed_request = True
-        elif auth and auth[0].lower() == TokenAuthentication.token_name:
+        elif (
+            auth
+            and auth[0].lower() == TokenAuthentication.token_name
+            and not force_text(auth[1]).startswith(SENTRY_JWT_PREFIX)
+        ):
             try:
                 result = TokenAuthentication().authenticate(request=request)
+            except AuthenticationFailed:
+                result = None
+            if result:
+                request.user, request.auth = result
+            else:
+                # default to anonymous user and use IP ratelimit
+                request.user = SimpleLazyObject(lambda: get_user(request))
+        elif (
+            auth
+            and auth[0].lower() == OrgAuthTokenAuthentication.token_name
+            and force_text(auth[1]).startswith(SENTRY_JWT_PREFIX)
+        ):
+            try:
+                result = OrgAuthTokenAuthentication().authenticate(request=request)
             except AuthenticationFailed:
                 result = None
             if result:

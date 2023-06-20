@@ -3,7 +3,7 @@ from uuid import uuid4
 
 from django.conf import settings
 
-from sentry.utils import jwt
+from sentry.utils import hashlib, jwt
 
 SENTRY_JWT_PREFIX = "sntrys_"
 
@@ -40,3 +40,7 @@ def parse_token(token: str):
         if token.endswith(".") is False:
             return parse_token(token + ".")
         return None
+
+
+def hash_token(token: str):
+    return hashlib.sha256_text(token).hexdigest()
