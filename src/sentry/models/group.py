@@ -47,7 +47,6 @@ from sentry.utils.numbers import base32_decode, base32_encode
 from sentry.utils.strings import strip, truncatechars
 
 if TYPE_CHECKING:
-    from sentry.api.event_search import SearchFilter
     from sentry.models import Environment, Organization, Team
     from sentry.services.hybrid_cloud.integration import RpcIntegration
     from sentry.services.hybrid_cloud.user import RpcUser
@@ -242,55 +241,30 @@ def get_oldest_or_latest_event_for_environments(
 def get_helpful_event_for_environments(
     environments: Sequence[Environment],
     group: Group,
-    search_filters: Optional[Sequence[SearchFilter]] = None,
+    conditions: Optional[Sequence[Condition]] = None,
 ) -> GroupEvent | None:
-    from sentry.api.serializers import GroupSerializerSnuba
-    from sentry.search.events.filter import (
-        convert_search_filter_to_snuba_query,
-        format_search_filter,
-    )
-
     if group.issue_category == GroupCategory.ERROR:
         dataset = Dataset.Events
     else:
         dataset = Dataset.IssuePlatform
 
-    conditions = []
+    all_conditions = []
     if len(environments) > 0:
-        conditions.append(Condition(Column("environment"), Op.IN, [e.name for e in environments]))
-    conditions.append(Condition(Column("project_id"), Op.IN, [group.project.id]))
-    conditions.append(Condition(Column("group_id"), Op.IN, [group.id]))
+        all_conditions.append(
+            Condition(Column("environment"), Op.IN, [e.name for e in environments])
+        )
+    all_conditions.append(Condition(Column("project_id"), Op.IN, [group.project.id]))
+    all_conditions.append(Condition(Column("group_id"), Op.IN, [group.id]))
 
-    if search_filters:
-        for search_filter in search_filters:
-            if search_filter.key.name not in GroupSerializerSnuba.skip_snuba_fields:
-                filter_keys = {
-                    "organization_id": group.project.organization_id,
-                    "project_id": [group.project.id],
-                    "environment_id": [env.id for env in environments],
-                }
-                formatted_conditions, projects_to_filter, group_ids = format_search_filter(
-                    search_filter, params=filter_keys
-                )
-
-                # if no re-formatted conditions, use fallback method
-                new_condition = None
-                if formatted_conditions:
-                    new_condition = formatted_conditions[0]
-                elif group_ids:
-                    new_condition = convert_search_filter_to_snuba_query(
-                        search_filter, params=filter_keys
-                    )
-
-                if new_condition:
-                    conditions.append(new_condition)
+    if conditions:
+        all_conditions.extend(conditions)
 
     events = eventstore.get_events_snql(
         organization_id=group.project.organization_id,
         group_id=group.id,
         start=None,
         end=None,
-        conditions=conditions,
+        conditions=all_conditions,
         limit=1,
         orderby=EventOrdering.MOST_HELPFUL.value,
         referrer="Group.get_helpful",
@@ -671,9 +645,9 @@ class Group(Model):
     def get_helpful_event_for_environments(
         self,
         environments: Sequence[Environment] = (),
-        search_filters: Optional[Sequence[SearchFilter]] = None,
+        conditions: Optional[Sequence[Condition]] = None,
     ) -> GroupEvent | None:
-        return get_helpful_event_for_environments(environments, self, search_filters)
+        return get_helpful_event_for_environments(environments, self, conditions)
 
     def get_first_release(self) -> str | None:
         from sentry.models import Release
