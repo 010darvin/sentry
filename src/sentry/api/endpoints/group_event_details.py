@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Sequence
 
-from rest_framework.exceptions import ParseError
 from rest_framework.request import Request
 from rest_framework.response import Response
 from snuba_sdk import Condition, Or
@@ -13,12 +13,12 @@ from sentry.api.base import region_silo_endpoint
 from sentry.api.bases.group import GroupEndpoint
 from sentry.api.endpoints.project_event_details import wrap_event_response
 from sentry.api.helpers.environments import get_environments
-from sentry.api.helpers.group_index import validate_search_filter_permissions
-from sentry.api.issue_search import convert_query_values, parse_search_query
+from sentry.api.helpers.group_index import parse_and_convert_issue_search_query
 from sentry.api.serializers import EventSerializer, serialize
-from sentry.exceptions import InvalidSearchQuery
-from sentry.models import Environment, Project, User
+from sentry.issues.grouptype import GroupCategory
+from sentry.models import Environment, User
 from sentry.search.events.filter import convert_search_filter_to_snuba_query, format_search_filter
+from sentry.snuba.dataset import Dataset
 from sentry.types.ratelimit import RateLimit, RateLimitCategory
 
 if TYPE_CHECKING:
@@ -26,29 +26,31 @@ if TYPE_CHECKING:
 
 
 def issue_search_query_to_conditions(
-    query: str, projects: Sequence[Project], user: User, environments: Sequence[Environment]
+    query: str, group: Group, user: User, environments: Sequence[Environment]
 ) -> Sequence[Condition]:
-    try:
-        search_filters = convert_query_values(
-            parse_search_query(query),
-            projects,
-            user,
-            [e.name for e in environments],
-        )
-    except InvalidSearchQuery:
-        raise ParseError(detail=f"Error parsing search query: {query}")
+    from sentry.utils.snuba import resolve_column, resolve_conditions
 
-    validate_search_filter_permissions(projects[0].organization, search_filters, user)
+    dataset = (
+        Dataset.Events
+        if group.issue_category == GroupCategory.ERROR.value
+        else Dataset.IssuePlatform
+    )
+
+    # syntactically correct search filters
+    search_filters = parse_and_convert_issue_search_query(
+        query, group.project.organization, [group.project], environments, user
+    )
+
+    # transform search filters -> the legacy condition format
     legacy_conditions = []
-
     if search_filters:
         for search_filter in search_filters:
             from sentry.api.serializers import GroupSerializerSnuba
 
             if search_filter.key.name not in GroupSerializerSnuba.skip_snuba_fields:
                 filter_keys = {
-                    "organization_id": [p.organization.id for p in projects],
-                    "project_id": [p.id for p in projects],
+                    "organization_id": [group.project.organization.id],
+                    "project_id": [group.project.id],
                     "environment_id": [env.id for env in environments],
                 }
                 legacy_condition, projects_to_filter, group_ids = format_search_filter(
@@ -67,8 +69,13 @@ def issue_search_query_to_conditions(
                 if new_condition:
                     legacy_conditions.append(new_condition)
 
+    # the transformed conditions is generic and isn't 'dataset aware', we need to map the generic columns
+    # being queried to the appropriate dataset column
+    resolved_legacy_conditions = resolve_conditions(legacy_conditions, resolve_column(dataset))
+
+    # convert the legacy condition format into the SnQL condition format
     snql_conditions = []
-    for cond in legacy_conditions or ():
+    for cond in resolved_legacy_conditions or ():
         if not is_condition(cond):
             # this shouldn't be possible since issue search only allows ands
             or_conditions = []
@@ -119,10 +126,28 @@ class GroupEventDetailsEndpoint(GroupEndpoint):
                 query = request.GET.get("query", None)
                 if query:
                     query = query.strip()
-                    conditions = issue_search_query_to_conditions(
-                        query, [group.project], request.user, environments
-                    )
-                    event = group.get_helpful_event_for_environments(environments, conditions)
+                    try:
+                        conditions = issue_search_query_to_conditions(
+                            query, group, request.user, environments
+                        )
+                    except Exception as e:
+                        logging.warning(
+                            "failed to parse query to conditions",
+                            exc_info=e,
+                            extra={"query": query},
+                        )
+                        conditions = None
+
+                    try:
+                        event = group.get_helpful_event_for_environments(environments, conditions)
+                    except Exception as e:
+                        logging.warning(
+                            "failed to retrieve helpful event .. falling back to retrieving without query",
+                            exc_info=e,
+                            extra={"conditions": conditions, "query": query},
+                        )
+                        event = group.get_helpful_event_for_environments(environments)
+
                 else:
                     event = group.get_helpful_event_for_environments(environments)
             else:
