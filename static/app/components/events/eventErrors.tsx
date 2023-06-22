@@ -4,7 +4,6 @@ import isEqual from 'lodash/isEqual';
 import uniq from 'lodash/uniq';
 import uniqWith from 'lodash/uniqWith';
 
-import {semverCompare} from 'sentry/utils/versions';
 import {Alert} from 'sentry/components/alert';
 import {ErrorItem, EventErrorData} from 'sentry/components/events/errorItem';
 import findBestThread from 'sentry/components/events/interfaces/threads/threadSelector/findBestThread';
@@ -25,6 +24,7 @@ import {defined} from 'sentry/utils';
 import {trackAnalytics} from 'sentry/utils/analytics';
 import {useApiQuery} from 'sentry/utils/queryClient';
 import useOrganization from 'sentry/utils/useOrganization';
+import {semverCompare} from 'sentry/utils/versions';
 import {projectProcessingIssuesMessages} from 'sentry/views/settings/project/projectProcessingIssues';
 
 import {DataSection} from './styles';
