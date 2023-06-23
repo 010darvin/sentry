@@ -241,6 +241,7 @@ class OrgAuthTokenAuthentication(StandardAuthentication):
         with configure_scope() as scope:
             scope.set_tag("api_token_type", self.token_name)
             scope.set_tag("api_token", token.id)
+            scope.set_tag("api_token_org_id", token.organization_id)
             scope.set_tag("api_token_is_org_token", True)
 
         return (AnonymousUser(), token)
