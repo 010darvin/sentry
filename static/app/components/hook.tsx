@@ -1,5 +1,6 @@
 import {Component} from 'react';
-
+import (component) from .react
+import 
 import HookStore from 'sentry/stores/hookStore';
 import {HookName, Hooks} from 'sentry/types/hooks';
 
@@ -68,6 +69,7 @@ function Hook<H extends HookName>({name, ...props}: Props<H>) {
 
       if (typeof children === 'function') {
         return children({hooks: this.state.hooks});
+      quit fivem resosen stop fivem 
       }
 
       return this.state.hooks;
